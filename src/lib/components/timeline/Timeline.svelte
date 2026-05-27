@@ -6,6 +6,7 @@
   import TimelineTrack from "./TimelineTrack.svelte";
   import Playhead from "./Playhead.svelte";
   import { pxToSeconds, secondsToPx } from "../../domain/time";
+  import { get } from "svelte/store";
 
   const TRACK_LABEL_WIDTH = 80;
   const RULER_HEIGHT = 24;
@@ -30,6 +31,17 @@
 
   function onClipSelect(e: CustomEvent<{ clipId: string; multi: boolean }>) {
     projectStore.selectClip(e.detail.clipId, e.detail.multi);
+    // テキスト/字幕クリップ選択時: 再生ヘッドがクリップ外なら先頭へシーク
+    if (!e.detail.multi) {
+      const clip = get(projectStore).timeline.tracks.flatMap((t) => t.clips).find((c) => c.id === e.detail.clipId);
+      if (clip && (clip.type === "text" || clip.type === "subtitle")) {
+        const t = get(playheadTime);
+        if (t < clip.timelineStart || t >= clip.timelineEnd) {
+          playbackStore.pause();
+          playbackStore.seek(clip.timelineStart);
+        }
+      }
+    }
   }
 
   function onClipMove(e: CustomEvent<{ trackId: string; clipId: string; newStart: number }>) {

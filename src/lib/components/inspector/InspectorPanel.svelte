@@ -38,6 +38,14 @@
     projectStore.updateClipAudio(track.id, clip.id, { volume: vol });
   }
 
+  function onFadeChange(field: "fadeIn" | "fadeOut", value: number) {
+    if (!clip || !track) return;
+    projectStore.updateClipAudio(track.id, clip.id, { [field]: value });
+  }
+
+  $: clipDuration = clip ? clip.timelineEnd - clip.timelineStart : 0;
+  $: maxFade = Math.min(5, clipDuration / 2);
+
   function onTextChange(field: string, value: string | number | boolean) {
     if (!clip || !track) return;
     projectStore.updateClipText(track.id, clip.id, { [field]: value } as any);
@@ -108,12 +116,14 @@
         </div>
       {/if}
 
-      <!-- 音量 -->
+      <!-- 音量・フェード -->
       {#if showVolumeControl}
         <div class="border-t border-dark-600"></div>
-        <div>
-          <p class="text-xs font-semibold text-gray-400 mb-1">音量</p>
+        <div class="space-y-2">
+          <p class="text-xs font-semibold text-gray-400">音量・フェード</p>
+          <!-- 音量 -->
           <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">音量</span>
             <input
               type="range"
               min="0"
@@ -125,6 +135,38 @@
             />
             <span class="text-xs text-gray-400 w-8 text-right">
               {Math.round((clip.audio?.volume ?? 1) * 100)}%
+            </span>
+          </div>
+          <!-- フェードイン -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">フェードI</span>
+            <input
+              type="range"
+              min="0"
+              max={maxFade}
+              step="0.1"
+              value={clip.audio?.fadeIn ?? 0}
+              class="flex-1 accent-accent-blue"
+              on:input={(e) => onFadeChange("fadeIn", Number((e.target as HTMLInputElement).value))}
+            />
+            <span class="text-xs text-gray-400 w-8 text-right">
+              {(clip.audio?.fadeIn ?? 0).toFixed(1)}s
+            </span>
+          </div>
+          <!-- フェードアウト -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">フェードO</span>
+            <input
+              type="range"
+              min="0"
+              max={maxFade}
+              step="0.1"
+              value={clip.audio?.fadeOut ?? 0}
+              class="flex-1 accent-accent-blue"
+              on:input={(e) => onFadeChange("fadeOut", Number((e.target as HTMLInputElement).value))}
+            />
+            <span class="text-xs text-gray-400 w-8 text-right">
+              {(clip.audio?.fadeOut ?? 0).toFixed(1)}s
             </span>
           </div>
         </div>

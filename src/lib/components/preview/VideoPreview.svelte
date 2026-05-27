@@ -47,7 +47,8 @@
 
   function onCanvasPointerDown(e: PointerEvent) {
     const t = get(playheadTime);
-    const textClip = findClipAt(t, sortedTextClips);
+    // 現在時刻のクリップを優先、なければ選択中クリップを対象にする
+    const textClip = findClipAt(t, sortedTextClips) ?? sortedTextClips.find((c) => c.selected) ?? null;
     if (!textClip?.text) return;
     const { x: px, y: py } = screenToCanvasPct(e.clientX, e.clientY);
     const clipX = textClip.text.x ?? 50;
@@ -153,6 +154,18 @@
     }
   }
 
+  function getFadeVolume(clip: Clip, timelineTime: number): number {
+    const base = clip.audio?.volume ?? 1;
+    const elapsed = timelineTime - clip.timelineStart;
+    const total = clip.timelineEnd - clip.timelineStart;
+    const fadeIn = clip.audio?.fadeIn ?? 0;
+    const fadeOut = clip.audio?.fadeOut ?? 0;
+    let vol = base;
+    if (fadeIn > 0 && elapsed < fadeIn) vol *= Math.max(0, elapsed / fadeIn);
+    if (fadeOut > 0 && elapsed > total - fadeOut) vol *= Math.max(0, (total - elapsed) / fadeOut);
+    return Math.max(0, Math.min(1, vol));
+  }
+
   function syncAudio(timelineTime: number) {
     const newClip = findClipAt(timelineTime, sortedAudioClips);
     if (newClip?.id !== audioClip?.id) {
@@ -171,11 +184,11 @@
         }
         const srcTime = newClip.sourceStart + (timelineTime - newClip.timelineStart);
         audioEl.currentTime = Math.max(0, srcTime);
-        audioEl.volume = Math.min(2, Math.max(0, newClip.audio?.volume ?? 1));
+        audioEl.volume = getFadeVolume(newClip, timelineTime);
         if (get(playbackStore).isPlaying) audioEl.play().catch(() => {});
       }
     } else if (audioClip && audioEl) {
-      audioEl.volume = Math.min(2, Math.max(0, audioClip.audio?.volume ?? 1));
+      audioEl.volume = getFadeVolume(audioClip, timelineTime);
     }
   }
 
@@ -205,6 +218,23 @@
 
     // テキストクリップ（自由配置: x/y%, rotation deg）
     const textClip = findClipAt(t, sortedTextClips);
+
+    // 選択中テキストクリップのドラッグハンドルを時間外でも描画
+    for (const tc of sortedTextClips) {
+      if (!tc.selected || !tc.text) continue;
+      const ts = tc.text;
+      const cx = W * ((ts.x ?? 50) / 100);
+      const cy = H * ((ts.y ?? 50) / 100);
+      ctx.save();
+      ctx.strokeStyle = draggingTextClip?.id === tc.id ? "rgba(96,165,250,1)" : "rgba(96,165,250,0.7)";
+      ctx.lineWidth = Math.max(1, H / 540);
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, H * 0.022, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     if (textClip?.text) {
       const ts = textClip.text;
       const scaledSize = Math.max(12, Math.round(ts.fontSize * (H / 1080)));
@@ -215,18 +245,6 @@
       const cx = W * ((ts.x ?? 50) / 100);
       const cy = H * ((ts.y ?? 50) / 100);
       const rad = ((ts.rotation ?? 0) * Math.PI) / 180;
-
-      // 選択中はドラッグハンドルを表示
-      if (textClip.selected) {
-        ctx.save();
-        ctx.strokeStyle = draggingTextClip ? "rgba(96,165,250,1)" : "rgba(96,165,250,0.7)";
-        ctx.lineWidth = Math.max(1, H / 540);
-        ctx.setLineDash([6, 4]);
-        ctx.beginPath();
-        ctx.arc(cx, cy, H * 0.022, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      }
 
       ctx.save();
       ctx.translate(cx, cy);
@@ -322,6 +340,11 @@
         rafId = 0;
         return;
       }
+    }
+
+    // ビデオ音量フェード（毎フレーム更新）
+    if (activeClip.type !== "image" && videoEl) {
+      videoEl.volume = getFadeVolume(activeClip, timelineTime);
     }
 
     syncAudio(timelineTime);

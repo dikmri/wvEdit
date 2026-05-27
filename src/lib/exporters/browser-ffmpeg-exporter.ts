@@ -86,6 +86,8 @@ export class BrowserFfmpegExporter implements Exporter {
           ]);
         } else {
           const volume = clip.audio?.volume ?? 1;
+          const fadeIn = clip.audio?.fadeIn ?? 0;
+          const fadeOut = clip.audio?.fadeOut ?? 0;
           const args: string[] = [
             "-ss", String(clip.sourceStart),
             "-i", inFile,
@@ -96,7 +98,11 @@ export class BrowserFfmpegExporter implements Exporter {
             "-preset", "ultrafast",
             "-avoid_negative_ts", "make_zero",
           ];
-          if (volume !== 1) args.push("-af", `volume=${volume}`);
+          const afParts: string[] = [];
+          if (volume !== 1) afParts.push(`volume=${volume}`);
+          if (fadeIn > 0) afParts.push(`afade=t=in:st=0:d=${fadeIn}`);
+          if (fadeOut > 0) afParts.push(`afade=t=out:st=${clipDuration - fadeOut}:d=${fadeOut}`);
+          if (afParts.length > 0) args.push("-af", afParts.join(","));
           args.push(outFile);
           await ffmpeg.exec(args);
         }
@@ -166,9 +172,14 @@ export class BrowserFfmpegExporter implements Exporter {
             const inputIdx = i + 1;
             const delayMs = Math.round(clip.timelineStart * 1000);
             const vol = clip.audio?.volume ?? 1;
-            filterParts.push(
-              `[${inputIdx}:a]atrim=start=${clip.sourceStart}:end=${clip.sourceEnd},adelay=${delayMs}|${delayMs},asetpts=PTS-STARTPTS,volume=${vol}[abgm${i}]`
-            );
+            const fadeIn = clip.audio?.fadeIn ?? 0;
+            const fadeOut = clip.audio?.fadeOut ?? 0;
+            const srcDuration = clip.sourceEnd - clip.sourceStart;
+            let chain = `[${inputIdx}:a]atrim=start=${clip.sourceStart}:end=${clip.sourceEnd},adelay=${delayMs}|${delayMs},asetpts=PTS-STARTPTS,volume=${vol}`;
+            if (fadeIn > 0) chain += `,afade=t=in:st=0:d=${fadeIn}`;
+            if (fadeOut > 0) chain += `,afade=t=out:st=${srcDuration - fadeOut}:d=${fadeOut}`;
+            chain += `[abgm${i}]`;
+            filterParts.push(chain);
             mixStreams.push(`[abgm${i}]`);
           }
           filterParts.push(
