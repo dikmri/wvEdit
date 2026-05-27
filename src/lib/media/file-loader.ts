@@ -43,6 +43,23 @@ export function readVideoMetadata(
   });
 }
 
+/** Imageを使って画像のサイズを取得する */
+export function readImageMetadata(file: File): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("画像メタデータの読み込みに失敗しました"));
+    };
+    img.src = url;
+  });
+}
+
 /** AudioElementを使って音声のdurationを取得する */
 export function readAudioMetadata(file: File): Promise<{ duration: number }> {
   return new Promise((resolve, reject) => {
@@ -83,6 +100,11 @@ export async function loadMediaFile(file: File): Promise<MediaAsset> {
     } else if (type === "audio") {
       const meta = await readAudioMetadata(file);
       duration = meta.duration;
+    } else if (type === "image") {
+      const meta = await readImageMetadata(file);
+      width = meta.width;
+      height = meta.height;
+      duration = 0;
     }
   } catch (e) {
     URL.revokeObjectURL(objectUrl);

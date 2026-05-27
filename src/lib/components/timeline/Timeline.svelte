@@ -44,22 +44,31 @@
   function onDropAsset(e: CustomEvent<{ trackId: string; assetId: string; time: number }>) {
     const { trackId, assetId, time } = e.detail;
     const asset = $projectStore.assets.find((a) => a.id === assetId);
-    if (!asset || asset.type !== "video") return;
+    if (!asset) return;
 
     const track = tracks.find((t) => t.id === trackId);
-    if (!track || track.type !== "video") return;
+    if (!track) return;
+
+    // 互換性チェック: video/image → video track, audio → audio track
+    if (track.type === "video" && asset.type !== "video" && asset.type !== "image") return;
+    if (track.type === "audio" && asset.type !== "audio") return;
+    if (track.type === "text") return;
+
+    const DEFAULT_IMAGE_DURATION = 5;
+    const duration = asset.duration > 0 ? asset.duration : DEFAULT_IMAGE_DURATION;
 
     const clip = {
       id: crypto.randomUUID(),
       assetId: asset.id,
-      type: "video" as const,
+      type: asset.type as "video" | "audio" | "image",
       trackId,
       timelineStart: time,
-      timelineEnd: time + asset.duration,
+      timelineEnd: time + duration,
       sourceStart: 0,
-      sourceEnd: asset.duration,
+      sourceEnd: duration,
       name: asset.name,
       selected: false,
+      audio: { volume: 1, muted: false, fadeIn: 0, fadeOut: 0 },
     };
     projectStore.addClipToTrack(trackId, clip);
   }

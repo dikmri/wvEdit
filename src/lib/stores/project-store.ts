@@ -1,5 +1,5 @@
 import { writable, get } from "svelte/store";
-import type { WvEditProject, MediaAsset, Clip, Track } from "../types/project";
+import type { WvEditProject, MediaAsset, Clip, Track, AudioSettings, TextSettings } from "../types/project";
 import { createNewProject } from "../domain/project";
 import {
   splitClip,
@@ -161,6 +161,48 @@ function createProjectStore() {
     });
   }
 
+  function updateClipAudio(trackId: string, clipId: string, audio: Partial<AudioSettings>) {
+    update((p) => {
+      const tracks = p.timeline.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        return {
+          ...t,
+          clips: t.clips.map((c) => {
+            if (c.id !== clipId) return c;
+            const def: AudioSettings = { volume: 1, muted: false, fadeIn: 0, fadeOut: 0 };
+            return { ...c, audio: { ...(c.audio ?? def), ...audio } };
+          }),
+        };
+      });
+      return { ...p, timeline: { ...p.timeline, tracks }, updatedAt: new Date().toISOString() };
+    });
+  }
+
+  function updateClipText(trackId: string, clipId: string, text: Partial<TextSettings>) {
+    update((p) => {
+      const tracks = p.timeline.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        return {
+          ...t,
+          clips: t.clips.map((c) => {
+            if (c.id !== clipId) return c;
+            const def: TextSettings = {
+              text: "テキストを入力",
+              fontSize: 72,
+              fontFamily: "sans-serif",
+              color: "#ffffff",
+              bold: false,
+              italic: false,
+              align: "center",
+            };
+            return { ...c, text: { ...(c.text ?? def), ...text } };
+          }),
+        };
+      });
+      return { ...p, timeline: { ...p.timeline, tracks }, updatedAt: new Date().toISOString() };
+    });
+  }
+
   function selectClip(clipId: string, multi = false) {
     update((p) => {
       const tracks = p.timeline.tracks.map((t) => ({
@@ -214,6 +256,8 @@ function createProjectStore() {
     splitClipAtTime,
     moveClipInTrack,
     trimClipInTrack,
+    updateClipAudio,
+    updateClipText,
     selectClip,
     clearSelection,
     getSelectedClips,

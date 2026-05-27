@@ -1,6 +1,6 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
-import type { WvEditProject, Clip } from "../types/project";
+import type { WvEditProject, Clip, MediaAsset } from "../types/project";
 import type { ExportOptions, ExportProgress, ExportResult, Exporter } from "../types/export";
 
 export class BrowserFfmpegExporter implements Exporter {
@@ -34,87 +34,166 @@ export class BrowserFfmpegExporter implements Exporter {
 
       const ffmpeg = await this.getFFmpeg();
 
-      // タイムライン上のビデオクリップを収集
       const videoTrack = project.timeline.tracks.find((t) => t.type === "video");
-      if (!videoTrack || videoTrack.clips.length === 0) {
-        return { success: false, error: "タイムラインに動画クリップがありません" };
+      const audioTrack = project.timeline.tracks.find((t) => t.type === "audio");
+
+      const videoClips = [...(videoTrack?.clips ?? [])].sort((a, b) => a.timelineStart - b.timelineStart);
+      const bgmClips = [...(audioTrack?.clips ?? [])].sort((a, b) => a.timelineStart - b.timelineStart);
+
+      if (videoClips.length === 0) {
+        return { success: false, error: "タイムラインに動画/画像クリップがありません" };
       }
 
-      const clips = [...videoTrack.clips].sort((a, b) => a.timelineStart - b.timelineStart);
+      const assetMap = new Map<string, MediaAsset>(project.assets.map((a) => [a.id, a]));
+      const { width: W, height: H, fps: FPS } = options;
+      const sampleRate = project.settings.sampleRate ?? 48000;
+      const vf = `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black`;
 
-      onProgress({ stage: "encoding", progress: 10, message: "動画ファイルを読み込み中..." });
+      onProgress({ stage: "encoding", progress: 5, message: "動画ファイルを読み込み中..." });
 
-      // 各クリップの素材ファイルをffmpegのVFSに書き込む
-      const assetMap = new Map<string, MediaAsset>();
-      for (const asset of project.assets) {
-        assetMap.set(asset.id, asset);
-      }
+      // ===== 1. 各ビデオ/画像クリップを書き出し + トリミング =====
+      const trimmedFiles: string[] = [];
 
-      // 入力ファイル群
-      const inputFiles: string[] = [];
-      for (let i = 0; i < clips.length; i++) {
-        const clip = clips[i];
+      for (let i = 0; i < videoClips.length; i++) {
+        const clip = videoClips[i];
         const asset = assetMap.get(clip.assetId);
         if (!asset?.objectUrl) {
           return { success: false, error: `クリップ「${clip.name}」の素材ファイルが見つかりません。再リンクしてください。` };
         }
-        const fileName = `input_${i}.mp4`;
-        const fileData = await fetchFile(asset.objectUrl);
-        await ffmpeg.writeFile(fileName, fileData);
-        inputFiles.push(fileName);
-      }
 
-      onProgress({ stage: "encoding", progress: 30, message: "クリップを切り出し中..." });
-
-      // 各クリップをtrim
-      const trimmedFiles: string[] = [];
-      for (let i = 0; i < clips.length; i++) {
-        const clip = clips[i];
+        const ext = clip.type === "image" ? "img" : "mp4";
+        const inFile = `input_${i}.${ext}`;
         const outFile = `trimmed_${i}.mp4`;
-        const duration = clip.sourceEnd - clip.sourceStart;
-        await ffmpeg.exec([
-          "-ss", String(clip.sourceStart),
-          "-i", inputFiles[i],
-          "-t", String(duration),
-          "-c:v", "libx264",
-          "-c:a", "aac",
-          "-preset", "ultrafast",
-          "-avoid_negative_ts", "make_zero",
-          outFile,
-        ]);
+        const clipDuration = clip.sourceEnd - clip.sourceStart;
+
+        await ffmpeg.writeFile(inFile, await fetchFile(asset.objectUrl));
+
+        if (clip.type === "image") {
+          await ffmpeg.exec([
+            "-loop", "1",
+            "-t", String(clipDuration),
+            "-i", inFile,
+            "-f", "lavfi",
+            "-t", String(clipDuration),
+            "-i", `anullsrc=r=${sampleRate}:cl=stereo`,
+            "-vf", vf,
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-r", String(FPS),
+            "-shortest",
+            outFile,
+          ]);
+        } else {
+          const volume = clip.audio?.volume ?? 1;
+          const args: string[] = [
+            "-ss", String(clip.sourceStart),
+            "-i", inFile,
+            "-t", String(clipDuration),
+            "-vf", vf,
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-preset", "ultrafast",
+            "-avoid_negative_ts", "make_zero",
+          ];
+          if (volume !== 1) args.push("-af", `volume=${volume}`);
+          args.push(outFile);
+          await ffmpeg.exec(args);
+        }
+
         trimmedFiles.push(outFile);
-        const p = 30 + (i / clips.length) * 40;
-        onProgress({ stage: "encoding", progress: p, message: `クリップ ${i + 1}/${clips.length} を処理中...` });
+        const p = 5 + ((i + 1) / videoClips.length) * 45;
+        onProgress({ stage: "encoding", progress: p, message: `クリップ ${i + 1}/${videoClips.length} を処理中...` });
       }
 
-      onProgress({ stage: "muxing", progress: 75, message: "クリップを結合中..." });
+      onProgress({ stage: "muxing", progress: 55, message: "クリップを結合中..." });
 
-      let outputFile: string;
+      // ===== 2. コンカット =====
+      let concatOutput: string;
       if (trimmedFiles.length === 1) {
-        outputFile = trimmedFiles[0];
+        concatOutput = trimmedFiles[0];
       } else {
-        // concat demuxer でクリップを結合
         const concatList = trimmedFiles.map((f) => `file '${f}'`).join("\n");
-        const encoder = new TextEncoder();
-        await ffmpeg.writeFile("concat.txt", encoder.encode(concatList));
-
-        outputFile = "output.mp4";
+        await ffmpeg.writeFile("concat.txt", new TextEncoder().encode(concatList));
+        concatOutput = "concat_out.mp4";
         await ffmpeg.exec([
           "-f", "concat",
           "-safe", "0",
           "-i", "concat.txt",
-          "-c:v", "libx264",
-          "-c:a", "aac",
-          "-preset", "ultrafast",
-          "-movflags", "+faststart",
-          outputFile,
+          "-c", "copy",
+          concatOutput,
         ]);
+      }
+
+      // ===== 3. BGM / SE ミックス =====
+      let finalOutput: string;
+
+      if (bgmClips.length === 0) {
+        finalOutput = "output.mp4";
+        await ffmpeg.exec([
+          "-i", concatOutput,
+          "-c", "copy",
+          "-movflags", "+faststart",
+          finalOutput,
+        ]);
+      } else {
+        onProgress({ stage: "muxing", progress: 70, message: "BGMを読み込み中..." });
+
+        const audioInputArgs: string[] = [];
+        const validBgmClips: Clip[] = [];
+
+        for (let i = 0; i < bgmClips.length; i++) {
+          const clip = bgmClips[i];
+          const asset = assetMap.get(clip.assetId);
+          if (!asset?.objectUrl) continue;
+          const aFile = `audio_${i}`;
+          await ffmpeg.writeFile(aFile, await fetchFile(asset.objectUrl));
+          audioInputArgs.push("-i", aFile);
+          validBgmClips.push(clip);
+        }
+
+        if (validBgmClips.length === 0) {
+          finalOutput = "output.mp4";
+          await ffmpeg.exec(["-i", concatOutput, "-c", "copy", "-movflags", "+faststart", finalOutput]);
+        } else {
+          onProgress({ stage: "muxing", progress: 80, message: "BGMを合成中..." });
+
+          const filterParts: string[] = [];
+          const mixStreams: string[] = ["[0:a]"];
+
+          for (let i = 0; i < validBgmClips.length; i++) {
+            const clip = validBgmClips[i];
+            const inputIdx = i + 1;
+            const delayMs = Math.round(clip.timelineStart * 1000);
+            const vol = clip.audio?.volume ?? 1;
+            filterParts.push(
+              `[${inputIdx}:a]atrim=start=${clip.sourceStart}:end=${clip.sourceEnd},adelay=${delayMs}|${delayMs},asetpts=PTS-STARTPTS,volume=${vol}[abgm${i}]`
+            );
+            mixStreams.push(`[abgm${i}]`);
+          }
+          filterParts.push(
+            `${mixStreams.join("")}amix=inputs=${mixStreams.length}:normalize=0:dropout_transition=0[aout]`
+          );
+
+          finalOutput = "output.mp4";
+          await ffmpeg.exec([
+            "-i", concatOutput,
+            ...audioInputArgs,
+            "-filter_complex", filterParts.join(";"),
+            "-map", "0:v",
+            "-map", "[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            finalOutput,
+          ]);
+        }
       }
 
       onProgress({ stage: "done", progress: 95, message: "ファイルを生成中..." });
 
-      const data = await ffmpeg.readFile(outputFile);
-      const blob = new Blob([data], { type: "video/mp4" });
+      const raw = await ffmpeg.readFile(finalOutput);
+      const blob = new Blob([Uint8Array.from(raw as Uint8Array)], { type: "video/mp4" });
 
       onProgress({ stage: "done", progress: 100, message: "書き出し完了" });
 
@@ -125,6 +204,3 @@ export class BrowserFfmpegExporter implements Exporter {
     }
   }
 }
-
-// 型のみimport用（TS用）
-import type { MediaAsset } from "../types/project";

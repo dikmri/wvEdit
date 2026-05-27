@@ -39,6 +39,14 @@ export function createNewProject(name = "新規プロジェクト"): WvEditProje
           locked: false,
           clips: [],
         },
+        {
+          id: crypto.randomUUID(),
+          type: "text",
+          name: "Text 1",
+          muted: false,
+          locked: false,
+          clips: [],
+        },
       ],
     },
   };

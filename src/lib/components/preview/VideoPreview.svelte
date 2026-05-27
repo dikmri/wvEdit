@@ -7,33 +7,59 @@
   import type { Clip } from "../../types/project";
 
   let videoEl: HTMLVideoElement;
+  let audioEl: HTMLAudioElement;
+  let canvasEl: HTMLCanvasElement;
   let seekbarEl: HTMLInputElement;
   let timecodeEl: HTMLSpanElement;
   let rafId = 0;
 
-  // RAF ループ内で使うモジュールスコープ変数（Svelte リアクティビティなし）
+  // RAF ループ内変数（Svelteリアクティビティなし）
   let activeUrl = "";
   let activeClip: Clip | null = null;
-  let isSwitching = false; // src 切り替え中フラグ
-  let storeTickCounter = 0; // playbackStore.setCurrentTime の間引きカウンタ
+  let isSwitching = false;
+  let storeTickCounter = 0;
   let cachedFps = 30;
   let cachedDuration = 0;
 
-  // playbackStore の fps/duration をキャッシュ（RAF 内で get() しない）
+  // 音声クリップ
+  let audioClip: Clip | null = null;
+  let audioUrl = "";
+
+  // 画像クリップ用クロック
+  let clockPerfBase = 0;
+  let clockTimeBase = 0;
+
+  // 画像キャッシュ
+  const imageCache = new Map<string, HTMLImageElement>();
+
   const unsubPb = playbackStore.subscribe((s) => {
     cachedFps = s.fps;
     cachedDuration = s.duration;
   });
 
-  // クリップリスト（ソート済み）をリアクティブにキャッシュ
   let sortedClips: Clip[] = [];
   $: sortedClips = $projectStore.timeline.tracks
     .filter((t) => t.type === "video")
     .flatMap((t) => t.clips)
     .sort((a, b) => a.timelineStart - b.timelineStart);
 
-  function findClipAt(time: number): Clip | null {
-    for (const clip of sortedClips) {
+  let sortedAudioClips: Clip[] = [];
+  $: sortedAudioClips = $projectStore.timeline.tracks
+    .filter((t) => t.type === "audio")
+    .flatMap((t) => t.clips)
+    .sort((a, b) => a.timelineStart - b.timelineStart);
+
+  let sortedTextClips: Clip[] = [];
+  $: sortedTextClips = $projectStore.timeline.tracks
+    .filter((t) => t.type === "text")
+    .flatMap((t) => t.clips)
+    .sort((a, b) => a.timelineStart - b.timelineStart);
+
+  // テキスト変更時に再描画（一時停止中）
+  $: if (sortedTextClips) redrawCanvas();
+
+  function findClipAt(time: number, clips: Clip[]): Clip | null {
+    for (const clip of clips) {
       if (clip.timelineStart > time) break;
       if (time < clip.timelineEnd) return clip;
     }
@@ -44,55 +70,159 @@
     return get(projectStore).assets.find((a) => a.id === clip.assetId)?.objectUrl ?? "";
   }
 
-  // video.src を必要な場合のみ変更する
+  function loadImageAsset(assetId: string, url: string): Promise<HTMLImageElement> {
+    if (imageCache.has(assetId)) return Promise.resolve(imageCache.get(assetId)!);
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => { imageCache.set(assetId, img); resolve(img); };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
   function switchClip(clip: Clip) {
-    const url = getAssetUrl(clip);
     activeClip = clip;
+    if (clip.type === "image") {
+      const url = getAssetUrl(clip);
+      activeUrl = url;
+      isSwitching = false;
+      loadImageAsset(clip.assetId, url).then(() => {
+        if (activeClip?.id === clip.id) redrawCanvas();
+      }).catch(() => {});
+      return;
+    }
+    const url = getAssetUrl(clip);
     if (url !== activeUrl) {
       activeUrl = url;
       isSwitching = true;
-      videoEl.src = url;
+      if (videoEl) videoEl.src = url;
+    }
+  }
+
+  function syncAudio(timelineTime: number) {
+    const newClip = findClipAt(timelineTime, sortedAudioClips);
+    if (newClip?.id !== audioClip?.id) {
+      if (!newClip) {
+        audioEl?.pause();
+        audioClip = null;
+        audioUrl = "";
+        return;
+      }
+      const url = getAssetUrl(newClip);
+      audioClip = newClip;
+      if (audioEl) {
+        if (url !== audioUrl) {
+          audioUrl = url;
+          audioEl.src = url;
+        }
+        const srcTime = newClip.sourceStart + (timelineTime - newClip.timelineStart);
+        audioEl.currentTime = Math.max(0, srcTime);
+        audioEl.volume = Math.min(2, Math.max(0, newClip.audio?.volume ?? 1));
+        if (get(playbackStore).isPlaying) audioEl.play().catch(() => {});
+      }
+    } else if (audioClip && audioEl) {
+      audioEl.volume = Math.min(2, Math.max(0, audioClip.audio?.volume ?? 1));
     }
   }
 
   function applySeek(timelineTime: number, clip: Clip) {
-    if (!videoEl) return;
+    if (!videoEl || clip.type === "image") return;
     const sourceTime = clip.sourceStart + (timelineTime - clip.timelineStart);
     if (Math.abs(videoEl.currentTime - sourceTime) > 0.05) {
       videoEl.currentTime = sourceTime;
     }
   }
 
-  // DOM を直接更新してリアクティビティを回避
+  function redrawCanvas() {
+    if (!canvasEl) return;
+    const ctx = canvasEl.getContext("2d");
+    if (!ctx) return;
+    const W = canvasEl.width;
+    const H = canvasEl.height;
+    ctx.clearRect(0, 0, W, H);
+
+    // 画像クリップ
+    if (activeClip?.type === "image") {
+      const img = imageCache.get(activeClip.assetId);
+      if (img) ctx.drawImage(img, 0, 0, W, H);
+    }
+
+    // テキストクリップ
+    const t = get(playheadTime);
+    const textClip = findClipAt(t, sortedTextClips);
+    if (textClip?.text) {
+      const ts = textClip.text;
+      const scaledSize = Math.max(12, Math.round(ts.fontSize * (H / 1080)));
+      const weight = ts.bold ? "bold" : "normal";
+      const style = ts.italic ? "italic" : "normal";
+      ctx.font = `${style} ${weight} ${scaledSize}px ${ts.fontFamily}`;
+      ctx.textAlign = ts.align as CanvasTextAlign;
+      ctx.textBaseline = "middle";
+
+      const textX = ts.align === "center" ? W / 2 : ts.align === "right" ? W - 40 : 40;
+      const textY = H * 0.82;
+
+      if (ts.backgroundColor) {
+        const metrics = ctx.measureText(ts.text);
+        const tw = metrics.width;
+        const th = scaledSize * 1.4;
+        const bx = ts.align === "center"
+          ? textX - tw / 2 - 10
+          : ts.align === "right" ? textX - tw - 10 : textX - 10;
+        ctx.fillStyle = ts.backgroundColor;
+        ctx.fillRect(bx, textY - th / 2, tw + 20, th);
+      }
+      ctx.fillStyle = ts.color;
+      ctx.fillText(ts.text, textX, textY);
+    }
+  }
+
   function updateUI(time: number) {
     if (seekbarEl) seekbarEl.value = String(time);
     if (timecodeEl) timecodeEl.textContent = secondsToTimecode(time, cachedFps);
+    redrawCanvas();
   }
 
   // ========== RAF ループ（再生中のみ動作） ==========
   function tick() {
-    // src 切り替え中は video.currentTime が不定なのでスキップ
-    if (!videoEl || !activeClip || isSwitching) {
+    if (!activeClip || isSwitching) {
       rafId = requestAnimationFrame(tick);
       return;
     }
 
-    const vt = videoEl.currentTime;
-    const timelineTime = activeClip.timelineStart + (vt - activeClip.sourceStart);
+    let timelineTime: number;
 
-    // クリップ終端 / タイムライン終端チェック
-    if (vt >= activeClip.sourceEnd - 0.04 || timelineTime >= cachedDuration - 0.04) {
+    if (activeClip.type === "image") {
+      timelineTime = clockTimeBase + (performance.now() - clockPerfBase) / 1000;
+    } else {
+      if (!videoEl) { rafId = requestAnimationFrame(tick); return; }
+      const vt = videoEl.currentTime;
+      timelineTime = activeClip.timelineStart + (vt - activeClip.sourceStart);
+    }
+
+    // クリップ終端チェック
+    const reachedEnd = activeClip.type === "image"
+      ? timelineTime >= activeClip.timelineEnd - 0.04
+      : videoEl.currentTime >= activeClip.sourceEnd - 0.04;
+
+    if (reachedEnd || timelineTime >= cachedDuration - 0.04) {
       const nextClip = sortedClips.find(
         (c) => c.id !== activeClip!.id && c.timelineStart >= activeClip!.timelineEnd - 0.01
       );
       if (nextClip) {
-        // 次のクリップへシームレス切り替え
+        if (activeClip.type !== "image") videoEl.pause();
         switchClip(nextClip);
-        videoEl.currentTime = nextClip.sourceStart;
-        videoEl.play();
+        if (nextClip.type === "image") {
+          clockPerfBase = performance.now();
+          clockTimeBase = nextClip.timelineStart;
+        } else {
+          videoEl.currentTime = nextClip.sourceStart;
+          videoEl.play().catch(() => {});
+        }
       } else {
-        // 終端: 停止してリセット
-        videoEl.pause();
+        if (activeClip.type !== "image") videoEl.pause();
+        audioEl?.pause();
+        audioClip = null;
         playbackStore.pause();
         playbackStore.seek(0);
         playheadTime.set(0);
@@ -102,11 +232,10 @@
       }
     }
 
-    // 60fps: playheadTime のみ更新（Playhead コンポーネントだけが再描画）
+    syncAudio(timelineTime);
     playheadTime.set(timelineTime);
     updateUI(timelineTime);
 
-    // ~10fps: playbackStore.currentTime を間引いて更新
     if (++storeTickCounter >= 6) {
       storeTickCounter = 0;
       playbackStore.setCurrentTime(timelineTime);
@@ -121,16 +250,23 @@
     const unsubscribe = playbackStore.subscribe((state) => {
       if (state.isPlaying && !prevIsPlaying) {
         const t = state.currentTime;
-        const clip = findClipAt(t);
-        if (clip && videoEl) {
-          const url = getAssetUrl(clip);
-          if (url !== activeUrl) {
-            switchClip(clip); // loadedmetadata で play()
+        const clip = findClipAt(t, sortedClips);
+        if (clip) {
+          if (clip.type === "image") {
+            switchClip(clip);
+            clockPerfBase = performance.now();
+            clockTimeBase = t;
           } else {
-            activeClip = clip;
-            applySeek(t, clip);
-            videoEl.play();
+            const url = getAssetUrl(clip);
+            if (url !== activeUrl) {
+              switchClip(clip); // loadedmetadata で play()
+            } else {
+              activeClip = clip;
+              applySeek(t, clip);
+              videoEl?.play().catch(() => {});
+            }
           }
+          syncAudio(t);
           storeTickCounter = 0;
           cancelAnimationFrame(rafId);
           rafId = requestAnimationFrame(tick);
@@ -139,8 +275,8 @@
         cancelAnimationFrame(rafId);
         rafId = 0;
         videoEl?.pause();
-        // 停止時: 正確な現在位置をストアへ書き込む
-        if (videoEl && activeClip) {
+        audioEl?.pause();
+        if (videoEl && activeClip && activeClip.type !== "image") {
           const finalTime = activeClip.timelineStart + (videoEl.currentTime - activeClip.sourceStart);
           playbackStore.setCurrentTime(finalTime);
           playheadTime.set(finalTime);
@@ -156,56 +292,73 @@
   function handleLoadedMetadata() {
     isSwitching = false;
     const t = get(playbackStore).currentTime;
-    const clip = findClipAt(t) ?? activeClip;
-    if (!clip || !videoEl) return;
+    const clip = findClipAt(t, sortedClips) ?? activeClip;
+    if (!clip || !videoEl || clip.type === "image") return;
     activeClip = clip;
     applySeek(t, clip);
-    if (get(playbackStore).isPlaying) {
-      videoEl.play();
-    }
+    if (get(playbackStore).isPlaying) videoEl.play().catch(() => {});
   }
 
   // 一時停止中: playbackStore の currentTime 変化に追従してビデオをシーク
-  $: if (!$playbackStore.isPlaying && videoEl) {
+  $: if (!$playbackStore.isPlaying && videoEl !== undefined) {
     const t = $playbackStore.currentTime;
-    const clip = findClipAt(t);
+    const clip = findClipAt(t, sortedClips);
     if (clip) {
-      const url = getAssetUrl(clip);
-      if (url !== activeUrl) {
-        switchClip(clip); // handleLoadedMetadata でシーク
+      if (clip.type === "image") {
+        if (activeClip?.id !== clip.id) switchClip(clip);
+        else redrawCanvas();
       } else {
-        activeClip = clip;
-        applySeek(t, clip);
+        const url = getAssetUrl(clip);
+        if (url !== activeUrl) {
+          switchClip(clip); // handleLoadedMetadata でシーク
+        } else {
+          activeClip = clip;
+          applySeek(t, clip);
+        }
       }
+    } else {
+      activeClip = null;
+      activeUrl = "";
     }
     playheadTime.set(t);
     updateUI(t);
   }
 
-  // タイムライン総尺 / fps をストアへ反映
   $: playbackStore.setDuration($projectStore.timeline.duration);
   $: playbackStore.setFps($projectStore.settings.fps);
 
   onDestroy(() => {
     cancelAnimationFrame(rafId);
     videoEl?.pause();
+    audioEl?.pause();
     unsubPb();
   });
 </script>
 
 <div class="flex flex-col h-full bg-dark-900">
   <!-- 動画表示エリア -->
-  <div class="flex-1 flex items-center justify-center bg-black relative overflow-hidden">
+  <div class="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
     <!-- svelte-ignore a11y-media-has-caption -->
     <video
       bind:this={videoEl}
       class="max-w-full max-h-full object-contain"
-      class:hidden={!activeUrl}
+      class:hidden={!activeUrl || activeClip?.type === "image"}
       preload="auto"
       on:loadedmetadata={handleLoadedMetadata}
     ></video>
 
-    {#if !activeUrl}
+    <!-- Canvas: 画像クリップ描画 + テキストオーバーレイ -->
+    <canvas
+      bind:this={canvasEl}
+      width={$projectStore.settings.width}
+      height={$projectStore.settings.height}
+      class="absolute max-w-full max-h-full object-contain pointer-events-none"
+    ></canvas>
+
+    <!-- svelte-ignore a11y-media-has-caption -->
+    <audio bind:this={audioEl} preload="auto"></audio>
+
+    {#if !activeUrl && sortedClips.length === 0}
       <div class="text-gray-600 text-center absolute">
         <div class="text-4xl mb-2">🎬</div>
         <p class="text-xs">素材を読み込んでタイムラインに配置してください</p>
