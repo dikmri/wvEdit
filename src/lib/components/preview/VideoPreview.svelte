@@ -55,8 +55,15 @@
     .flatMap((t) => t.clips)
     .sort((a, b) => a.timelineStart - b.timelineStart);
 
-  // テキスト変更時に再描画（一時停止中）
+  let sortedSubtitleClips: Clip[] = [];
+  $: sortedSubtitleClips = $projectStore.timeline.tracks
+    .filter((t) => t.type === "subtitle")
+    .flatMap((t) => t.clips)
+    .sort((a, b) => a.timelineStart - b.timelineStart);
+
+  // テキスト/字幕変更時に再描画（一時停止中）
   $: if (sortedTextClips) redrawCanvas();
+  $: if (sortedSubtitleClips) redrawCanvas();
 
   function findClipAt(time: number, clips: Clip[]): Clip | null {
     for (const clip of clips) {
@@ -147,30 +154,56 @@
       if (img) ctx.drawImage(img, 0, 0, W, H);
     }
 
-    // テキストクリップ
     const t = get(playheadTime);
+
+    // テキストクリップ（自由配置: x/y%, rotation deg）
     const textClip = findClipAt(t, sortedTextClips);
     if (textClip?.text) {
       const ts = textClip.text;
       const scaledSize = Math.max(12, Math.round(ts.fontSize * (H / 1080)));
-      const weight = ts.bold ? "bold" : "normal";
-      const style = ts.italic ? "italic" : "normal";
-      ctx.font = `${style} ${weight} ${scaledSize}px ${ts.fontFamily}`;
+      ctx.font = `${ts.italic ? "italic" : "normal"} ${ts.bold ? "bold" : "normal"} ${scaledSize}px ${ts.fontFamily}`;
       ctx.textAlign = ts.align as CanvasTextAlign;
       ctx.textBaseline = "middle";
 
-      const textX = ts.align === "center" ? W / 2 : ts.align === "right" ? W - 40 : 40;
+      const cx = W * ((ts.x ?? 50) / 100);
+      const cy = H * ((ts.y ?? 50) / 100);
+      const rad = ((ts.rotation ?? 0) * Math.PI) / 180;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rad);
+
+      if (ts.backgroundColor) {
+        const metrics = ctx.measureText(ts.text);
+        const tw = metrics.width;
+        const th = scaledSize * 1.4;
+        const bx = ts.align === "center" ? -tw / 2 - 10 : ts.align === "right" ? -tw - 10 : -10;
+        ctx.fillStyle = ts.backgroundColor;
+        ctx.fillRect(bx, -th / 2, tw + 20, th);
+      }
+      ctx.fillStyle = ts.color;
+      ctx.fillText(ts.text, 0, 0);
+      ctx.restore();
+    }
+
+    // 字幕クリップ（横中央固定, y% 縦位置, 背景あり）
+    const subtitleClip = findClipAt(t, sortedSubtitleClips);
+    if (subtitleClip?.text) {
+      const ts = subtitleClip.text;
+      const scaledSize = Math.max(12, Math.round(ts.fontSize * (H / 1080)));
+      ctx.font = `${ts.italic ? "italic" : "normal"} ${ts.bold ? "bold" : "normal"} ${scaledSize}px ${ts.fontFamily}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      const textX = W / 2;
       const textY = H * ((ts.y ?? 82) / 100);
 
       if (ts.backgroundColor) {
         const metrics = ctx.measureText(ts.text);
         const tw = metrics.width;
         const th = scaledSize * 1.4;
-        const bx = ts.align === "center"
-          ? textX - tw / 2 - 10
-          : ts.align === "right" ? textX - tw - 10 : textX - 10;
         ctx.fillStyle = ts.backgroundColor;
-        ctx.fillRect(bx, textY - th / 2, tw + 20, th);
+        ctx.fillRect(textX - tw / 2 - 10, textY - th / 2, tw + 20, th);
       }
       ctx.fillStyle = ts.color;
       ctx.fillText(ts.text, textX, textY);

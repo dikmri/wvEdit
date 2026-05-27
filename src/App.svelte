@@ -110,6 +110,39 @@
         bold: false,
         italic: false,
         align: "center",
+        x: 50,
+        y: 50,
+        rotation: 0,
+      },
+    });
+  }
+
+  function addSubtitleClip() {
+    const subTrack = get(projectStore).timeline.tracks.find((t) => t.type === "subtitle");
+    if (!subTrack) return;
+    const t = get(playheadTime);
+    const duration = 5;
+    projectStore.addClipToTrack(subTrack.id, {
+      id: crypto.randomUUID(),
+      assetId: "",
+      type: "subtitle",
+      trackId: subTrack.id,
+      timelineStart: t,
+      timelineEnd: t + duration,
+      sourceStart: 0,
+      sourceEnd: duration,
+      name: "字幕",
+      selected: false,
+      text: {
+        text: "字幕を入力",
+        fontSize: 60,
+        fontFamily: "sans-serif",
+        color: "#ffffff",
+        backgroundColor: "rgba(0,0,0,0.65)",
+        bold: false,
+        italic: false,
+        align: "center",
+        y: 82,
       },
     });
   }

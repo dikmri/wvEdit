@@ -52,7 +52,7 @@
     // 互換性チェック: video/image → video track, audio → audio track
     if (track.type === "video" && asset.type !== "video" && asset.type !== "image") return;
     if (track.type === "audio" && asset.type !== "audio") return;
-    if (track.type === "text") return;
+    if (track.type === "text" || track.type === "subtitle") return;
 
     const DEFAULT_IMAGE_DURATION = 5;
     const duration = asset.duration > 0 ? asset.duration : DEFAULT_IMAGE_DURATION;
@@ -111,10 +111,13 @@
       <!-- ルーラーの高さ分余白 -->
       <div style="height: {RULER_HEIGHT}px;" class="border-b border-dark-600"></div>
       {#each tracks as track}
+        {@const iconColor = track.type === "video" ? "text-blue-400" : track.type === "audio" ? "text-green-400" : track.type === "subtitle" ? "text-orange-400" : "text-purple-400"}
+        {@const icon = track.type === "video" ? "▶" : track.type === "audio" ? "♪" : track.type === "subtitle" ? "字" : "T"}
         <div
-          class="flex items-center px-2 border-b border-dark-600"
+          class="flex items-center gap-1 px-2 border-b border-dark-600"
           style="height: {TRACK_HEIGHT}px;"
         >
+          <span class="text-xs font-bold flex-shrink-0 {iconColor}">{icon}</span>
           <span class="text-xs text-gray-400 truncate">{track.name}</span>
         </div>
       {/each}

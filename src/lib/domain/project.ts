@@ -25,8 +25,24 @@ export function createNewProject(name = "新規プロジェクト"): WvEditProje
       tracks: [
         {
           id: crypto.randomUUID(),
+          type: "text",
+          name: "テキスト 1",
+          muted: false,
+          locked: false,
+          clips: [],
+        },
+        {
+          id: crypto.randomUUID(),
+          type: "subtitle",
+          name: "字幕 1",
+          muted: false,
+          locked: false,
+          clips: [],
+        },
+        {
+          id: crypto.randomUUID(),
           type: "video",
-          name: "Video 1",
+          name: "映像 1",
           muted: false,
           locked: false,
           clips: [],
@@ -34,15 +50,7 @@ export function createNewProject(name = "新規プロジェクト"): WvEditProje
         {
           id: crypto.randomUUID(),
           type: "audio",
-          name: "Audio 1",
-          muted: false,
-          locked: false,
-          clips: [],
-        },
-        {
-          id: crypto.randomUUID(),
-          type: "text",
-          name: "Text 1",
+          name: "音声 1",
           muted: false,
           locked: false,
           clips: [],

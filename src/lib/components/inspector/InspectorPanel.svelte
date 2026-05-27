@@ -12,6 +12,7 @@
 
   $: showVolumeControl = track?.type === "audio" || clip?.type === "video";
   $: showTextControl = clip?.type === "text";
+  $: showSubtitleControl = clip?.type === "subtitle";
 
   // テキスト入力はローカル変数で管理（クリップ切り替え時のみストアから同期）
   // カーソル位置を保持するため、ストア更新のたびに textarea を上書きしない
@@ -90,7 +91,7 @@
         </div>
       </div>
 
-      {#if clip.type !== "text"}
+      {#if clip.type !== "text" && clip.type !== "subtitle"}
         <div class="border-t border-dark-600"></div>
         <div>
           <p class="text-xs font-semibold text-gray-400 mb-1">ソース</p>
@@ -129,13 +130,12 @@
         </div>
       {/if}
 
-      <!-- テキスト設定 -->
+      <!-- テキスト設定（自由配置） -->
       {#if showTextControl && clip.text}
         <div class="border-t border-dark-600"></div>
         <div class="space-y-2">
           <p class="text-xs font-semibold text-gray-400">テキスト</p>
 
-          <!-- テキスト内容（ローカル変数でカーソル位置を保持） -->
           <textarea
             class="w-full bg-dark-600 text-xs text-white rounded px-2 py-1 resize-none border border-dark-500 focus:border-accent-blue outline-none"
             rows="3"
@@ -143,13 +143,47 @@
             on:input={() => onTextChange("text", localText)}
           ></textarea>
 
+          <!-- X位置 -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">X位置</span>
+            <input
+              type="range" min="0" max="100" step="1"
+              value={clip.text.x ?? 50}
+              class="flex-1 accent-accent-blue"
+              on:input={(e) => onTextChange("x", Number((e.target as HTMLInputElement).value))}
+            />
+            <span class="text-xs text-gray-400 w-8 text-right">{clip.text.x ?? 50}%</span>
+          </div>
+
+          <!-- Y位置 -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">Y位置</span>
+            <input
+              type="range" min="0" max="100" step="1"
+              value={clip.text.y ?? 50}
+              class="flex-1 accent-accent-blue"
+              on:input={(e) => onTextChange("y", Number((e.target as HTMLInputElement).value))}
+            />
+            <span class="text-xs text-gray-400 w-8 text-right">{clip.text.y ?? 50}%</span>
+          </div>
+
+          <!-- 回転 -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">回転</span>
+            <input
+              type="range" min="-180" max="180" step="1"
+              value={clip.text.rotation ?? 0}
+              class="flex-1 accent-accent-blue"
+              on:input={(e) => onTextChange("rotation", Number((e.target as HTMLInputElement).value))}
+            />
+            <span class="text-xs text-gray-400 w-8 text-right">{clip.text.rotation ?? 0}°</span>
+          </div>
+
           <!-- フォントサイズ -->
           <div class="flex items-center gap-2">
             <span class="text-xs text-gray-500 w-14 flex-shrink-0">サイズ</span>
             <input
-              type="number"
-              min="12"
-              max="300"
+              type="number" min="12" max="300"
               value={clip.text.fontSize}
               class="flex-1 bg-dark-600 text-xs text-white rounded px-2 py-1 border border-dark-500 outline-none focus:border-accent-blue"
               on:change={(e) => onTextChange("fontSize", Number((e.target as HTMLInputElement).value))}
@@ -165,9 +199,9 @@
               value={clip.text.fontFamily}
               on:change={(e) => onTextChange("fontFamily", (e.target as HTMLSelectElement).value)}
             >
-              <option value="sans-serif">ゴシック (sans-serif)</option>
-              <option value="serif">明朝 (serif)</option>
-              <option value="monospace">等幅 (monospace)</option>
+              <option value="sans-serif">ゴシック</option>
+              <option value="serif">明朝</option>
+              <option value="monospace">等幅</option>
             </select>
           </div>
 
@@ -183,7 +217,50 @@
             <span class="text-xs text-gray-500">{clip.text.color}</span>
           </div>
 
-          <!-- 縦位置 -->
+          <!-- 横揃え -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">横揃え</span>
+            <div class="flex gap-1 flex-1">
+              {#each [["left", "左"], ["center", "中"], ["right", "右"]] as [align, label]}
+                <button
+                  class="flex-1 text-xs py-1 rounded {clip.text.align === align ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
+                  on:click={() => onTextChange("align", align)}
+                >{label}</button>
+              {/each}
+            </div>
+          </div>
+
+          <!-- 太字/斜体 -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">スタイル</span>
+            <div class="flex gap-1">
+              <button
+                class="text-xs px-3 py-1 rounded font-bold {clip.text.bold ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
+                on:click={() => onTextChange("bold", !clip!.text!.bold)}
+              >B</button>
+              <button
+                class="text-xs px-3 py-1 rounded italic {clip.text.italic ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
+                on:click={() => onTextChange("italic", !clip!.text!.italic)}
+              >I</button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- 字幕設定（中央固定, y位置プリセット） -->
+      {#if showSubtitleControl && clip.text}
+        <div class="border-t border-dark-600"></div>
+        <div class="space-y-2">
+          <p class="text-xs font-semibold text-gray-400">字幕</p>
+
+          <textarea
+            class="w-full bg-dark-600 text-xs text-white rounded px-2 py-1 resize-none border border-dark-500 focus:border-accent-blue outline-none"
+            rows="3"
+            bind:value={localText}
+            on:input={() => onTextChange("text", localText)}
+          ></textarea>
+
+          <!-- 縦位置プリセット -->
           <div class="flex items-center gap-2">
             <span class="text-xs text-gray-500 w-14 flex-shrink-0">縦位置</span>
             <div class="flex gap-1 flex-1">
@@ -196,17 +273,42 @@
             </div>
           </div>
 
-          <!-- 横揃え -->
+          <!-- フォントサイズ -->
           <div class="flex items-center gap-2">
-            <span class="text-xs text-gray-500 w-14 flex-shrink-0">横揃え</span>
-            <div class="flex gap-1 flex-1">
-              {#each [["left", "左"], ["center", "中"], ["right", "右"]] as [align, label]}
-                <button
-                  class="flex-1 text-xs py-1 rounded {clip.text.align === align ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
-                  on:click={() => onTextChange("align", align)}
-                >{label}</button>
-              {/each}
-            </div>
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">サイズ</span>
+            <input
+              type="number" min="12" max="300"
+              value={clip.text.fontSize}
+              class="flex-1 bg-dark-600 text-xs text-white rounded px-2 py-1 border border-dark-500 outline-none focus:border-accent-blue"
+              on:change={(e) => onTextChange("fontSize", Number((e.target as HTMLInputElement).value))}
+            />
+            <span class="text-xs text-gray-500">px</span>
+          </div>
+
+          <!-- フォント -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">フォント</span>
+            <select
+              class="flex-1 bg-dark-600 text-xs text-white rounded px-1 py-1 border border-dark-500 outline-none"
+              value={clip.text.fontFamily}
+              on:change={(e) => onTextChange("fontFamily", (e.target as HTMLSelectElement).value)}
+            >
+              <option value="sans-serif">ゴシック</option>
+              <option value="serif">明朝</option>
+              <option value="monospace">等幅</option>
+            </select>
+          </div>
+
+          <!-- 文字色 -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">文字色</span>
+            <input
+              type="color"
+              value={clip.text.color}
+              class="w-8 h-6 rounded cursor-pointer border-0 bg-transparent"
+              on:input={(e) => onTextChange("color", (e.target as HTMLInputElement).value)}
+            />
+            <span class="text-xs text-gray-500">{clip.text.color}</span>
           </div>
 
           <!-- 太字/斜体 -->

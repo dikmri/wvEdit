@@ -48,7 +48,9 @@ export type TextSettings = {
   bold: boolean;
   italic: boolean;
   align: "left" | "center" | "right";
+  x?: number;
   y?: number;
+  rotation?: number;
 };
 
 export type Effect = {
@@ -58,7 +60,7 @@ export type Effect = {
   params: Record<string, number | string | boolean>;
 };
 
-export type ClipType = "video" | "audio" | "text" | "image";
+export type ClipType = "video" | "audio" | "text" | "subtitle" | "image";
 
 export type Clip = {
   id: string;
@@ -77,7 +79,7 @@ export type Clip = {
   effects?: Effect[];
 };
 
-export type TrackType = "video" | "audio" | "text" | "image";
+export type TrackType = "video" | "audio" | "text" | "subtitle" | "image";
 
 export type Track = {
   id: string;

@@ -5,7 +5,7 @@
   import type { MediaAsset } from "../../types/project";
   import { createEventDispatcher } from "svelte";
 
-  const dispatch = createEventDispatcher<{ "add-to-timeline": MediaAsset; "add-text": void }>();
+  const dispatch = createEventDispatcher<{ "add-to-timeline": MediaAsset; "add-text": void; "add-subtitle": void }>();
 
   let fileInput: HTMLInputElement;
   let dragOver = false;
@@ -68,7 +68,8 @@
   <div class="flex items-center justify-between px-3 py-2 border-b border-dark-600">
     <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">素材</span>
     <div class="flex gap-1">
-      <button class="btn-ghost text-xs" on:click={() => dispatch("add-text")} title="テキストクリップを追加">T+</button>
+      <button class="btn-ghost text-xs px-1.5" on:click={() => dispatch("add-text")} title="テキストを追加 (自由配置)">T+</button>
+      <button class="btn-ghost text-xs px-1.5" on:click={() => dispatch("add-subtitle")} title="字幕を追加">字+</button>
       <button class="btn-ghost text-xs" on:click={() => fileInput.click()}>+ 追加</button>
     </div>
   </div>

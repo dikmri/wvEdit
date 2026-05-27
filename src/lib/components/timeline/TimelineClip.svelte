@@ -41,6 +41,8 @@
     ? "bg-green-900 border-green-700"
     : clip.type === "image"
     ? "bg-teal-900 border-teal-700"
+    : clip.type === "subtitle"
+    ? "bg-orange-900 border-orange-700"
     : "bg-purple-900 border-purple-700";
 
   $: selectedStyle = clip.selected ? "ring-2 ring-accent-blue" : "";
