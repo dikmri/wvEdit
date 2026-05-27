@@ -1,6 +1,5 @@
 <script lang="ts">
   import { projectStore } from "../../stores/project-store";
-  import type { Track } from "../../types/project";
 
   $: selectedClips = $projectStore.timeline.tracks.flatMap((t) =>
     t.clips.filter((c) => c.selected)
@@ -13,6 +12,18 @@
 
   $: showVolumeControl = track?.type === "audio" || clip?.type === "video";
   $: showTextControl = clip?.type === "text";
+
+  // テキスト入力はローカル変数で管理（クリップ切り替え時のみストアから同期）
+  // カーソル位置を保持するため、ストア更新のたびに textarea を上書きしない
+  let _textClipId = "";
+  let localText = "";
+  $: {
+    const id = clip?.id ?? "";
+    if (id !== _textClipId) {
+      _textClipId = id;
+      localText = clip?.text?.text ?? "";
+    }
+  }
 
   function formatDuration(sec: number): string {
     const m = Math.floor(sec / 60);
@@ -30,6 +41,12 @@
     if (!clip || !track) return;
     projectStore.updateClipText(track.id, clip.id, { [field]: value } as any);
   }
+
+  const Y_PRESETS = [
+    { label: "上部", value: 15 },
+    { label: "中央", value: 50 },
+    { label: "下部", value: 82 },
+  ];
 </script>
 
 <div class="flex flex-col h-full bg-dark-800 border-l border-dark-600 overflow-y-auto">
@@ -75,7 +92,6 @@
 
       {#if clip.type !== "text"}
         <div class="border-t border-dark-600"></div>
-        <!-- ソース範囲 -->
         <div>
           <p class="text-xs font-semibold text-gray-400 mb-1">ソース</p>
           <div class="grid grid-cols-2 gap-1 text-xs">
@@ -119,73 +135,90 @@
         <div class="space-y-2">
           <p class="text-xs font-semibold text-gray-400">テキスト</p>
 
+          <!-- テキスト内容（ローカル変数でカーソル位置を保持） -->
           <textarea
             class="w-full bg-dark-600 text-xs text-white rounded px-2 py-1 resize-none border border-dark-500 focus:border-accent-blue outline-none"
             rows="3"
-            value={clip.text.text}
-            on:input={(e) => onTextChange("text", (e.target as HTMLTextAreaElement).value)}
+            bind:value={localText}
+            on:input={() => onTextChange("text", localText)}
           ></textarea>
 
+          <!-- フォントサイズ -->
           <div class="flex items-center gap-2">
-            <label class="text-xs text-gray-500 w-14 flex-shrink-0">フォント</label>
-            <select
-              class="flex-1 bg-dark-600 text-xs text-white rounded px-1 py-1 border border-dark-500"
-              value={clip.text.fontFamily}
-              on:change={(e) => onTextChange("fontFamily", (e.target as HTMLSelectElement).value)}
-            >
-              <option value="sans-serif">Sans-serif</option>
-              <option value="serif">Serif</option>
-              <option value="monospace">Monospace</option>
-              <option value="'Noto Sans JP', sans-serif">Noto Sans JP</option>
-            </select>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <label class="text-xs text-gray-500 w-14 flex-shrink-0">サイズ</label>
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">サイズ</span>
             <input
               type="number"
               min="12"
               max="300"
               value={clip.text.fontSize}
-              class="flex-1 bg-dark-600 text-xs text-white rounded px-2 py-1 border border-dark-500"
-              on:input={(e) => onTextChange("fontSize", Number((e.target as HTMLInputElement).value))}
+              class="flex-1 bg-dark-600 text-xs text-white rounded px-2 py-1 border border-dark-500 outline-none focus:border-accent-blue"
+              on:change={(e) => onTextChange("fontSize", Number((e.target as HTMLInputElement).value))}
             />
+            <span class="text-xs text-gray-500">px</span>
           </div>
 
+          <!-- フォント -->
           <div class="flex items-center gap-2">
-            <label class="text-xs text-gray-500 w-14 flex-shrink-0">色</label>
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">フォント</span>
+            <select
+              class="flex-1 bg-dark-600 text-xs text-white rounded px-1 py-1 border border-dark-500 outline-none"
+              value={clip.text.fontFamily}
+              on:change={(e) => onTextChange("fontFamily", (e.target as HTMLSelectElement).value)}
+            >
+              <option value="sans-serif">ゴシック (sans-serif)</option>
+              <option value="serif">明朝 (serif)</option>
+              <option value="monospace">等幅 (monospace)</option>
+            </select>
+          </div>
+
+          <!-- 文字色 -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">文字色</span>
             <input
               type="color"
               value={clip.text.color}
-              class="w-8 h-6 rounded cursor-pointer border-0"
+              class="w-8 h-6 rounded cursor-pointer border-0 bg-transparent"
               on:input={(e) => onTextChange("color", (e.target as HTMLInputElement).value)}
             />
             <span class="text-xs text-gray-500">{clip.text.color}</span>
           </div>
 
-          <!-- 整列 -->
+          <!-- 縦位置 -->
           <div class="flex items-center gap-2">
-            <label class="text-xs text-gray-500 w-14 flex-shrink-0">整列</label>
-            <div class="flex gap-1">
-              {#each [["left", "←"], ["center", "≡"], ["right", "→"]] as [align, icon]}
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">縦位置</span>
+            <div class="flex gap-1 flex-1">
+              {#each Y_PRESETS as preset}
                 <button
-                  class="text-xs px-2 py-1 rounded {clip.text.align === align ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
+                  class="flex-1 text-xs py-1 rounded {(clip.text.y ?? 82) === preset.value ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
+                  on:click={() => onTextChange("y", preset.value)}
+                >{preset.label}</button>
+              {/each}
+            </div>
+          </div>
+
+          <!-- 横揃え -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">横揃え</span>
+            <div class="flex gap-1 flex-1">
+              {#each [["left", "左"], ["center", "中"], ["right", "右"]] as [align, label]}
+                <button
+                  class="flex-1 text-xs py-1 rounded {clip.text.align === align ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
                   on:click={() => onTextChange("align", align)}
-                >{icon}</button>
+                >{label}</button>
               {/each}
             </div>
           </div>
 
           <!-- 太字/斜体 -->
           <div class="flex items-center gap-2">
-            <label class="text-xs text-gray-500 w-14 flex-shrink-0">スタイル</label>
+            <span class="text-xs text-gray-500 w-14 flex-shrink-0">スタイル</span>
             <div class="flex gap-1">
               <button
-                class="text-xs px-2 py-1 rounded font-bold {clip.text.bold ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
+                class="text-xs px-3 py-1 rounded font-bold {clip.text.bold ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
                 on:click={() => onTextChange("bold", !clip!.text!.bold)}
               >B</button>
               <button
-                class="text-xs px-2 py-1 rounded italic {clip.text.italic ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
+                class="text-xs px-3 py-1 rounded italic {clip.text.italic ? 'bg-accent-blue text-white' : 'bg-dark-600 text-gray-400 hover:bg-dark-500'}"
                 on:click={() => onTextChange("italic", !clip!.text!.italic)}
               >I</button>
             </div>

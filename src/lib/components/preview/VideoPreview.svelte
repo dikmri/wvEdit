@@ -160,7 +160,7 @@
       ctx.textBaseline = "middle";
 
       const textX = ts.align === "center" ? W / 2 : ts.align === "right" ? W - 40 : 40;
-      const textY = H * 0.82;
+      const textY = H * ((ts.y ?? 82) / 100);
 
       if (ts.backgroundColor) {
         const metrics = ctx.measureText(ts.text);

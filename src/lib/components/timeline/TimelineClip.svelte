@@ -46,11 +46,12 @@
   $: selectedStyle = clip.selected ? "ring-2 ring-accent-blue" : "";
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y-no-static-element-interactions a11y-click-events-have-key-events -->
 <div
   class="absolute top-0 h-full {clipColor} border rounded cursor-pointer select-none overflow-hidden {selectedStyle}"
   style="left: {left}px; width: {width}px;"
   on:pointerdown={onPointerDown}
+  on:click|stopPropagation
 >
   <!-- 左トリムハンドル -->
   <div

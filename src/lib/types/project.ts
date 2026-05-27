@@ -48,6 +48,7 @@ export type TextSettings = {
   bold: boolean;
   italic: boolean;
   align: "left" | "center" | "right";
+  y?: number;
 };
 
 export type Effect = {
