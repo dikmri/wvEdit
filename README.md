@@ -2,7 +2,7 @@
 
 ブラウザで動作する軽量ノンリニア動画編集Webアプリ。インストール不要・無料・ローカル処理完結。
 
-🔗 **[GitHub Pagesで開く](https://d-marui.github.io/wvEdit/)**
+🔗 **[GitHub Pagesで開く](https://dikmri.github.io/wvEdit/)**
 
 ## 特徴
 
