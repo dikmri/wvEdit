@@ -1,5 +1,12 @@
 import { writable } from "svelte/store";
 
+/**
+ * 再生ヘッド位置専用ストア。
+ * RAF から 60fps で更新。Playhead コンポーネントのみ購読し、
+ * Timeline 全体の再描画を回避する。
+ */
+export const playheadTime = writable(0);
+
 export type PlaybackState = {
   isPlaying: boolean;
   currentTime: number;

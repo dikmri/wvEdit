@@ -7,8 +7,9 @@
   import Timeline from "./lib/components/timeline/Timeline.svelte";
   import ExportDialog from "./lib/components/layout/ExportDialog.svelte";
   import ErrorBanner from "./lib/components/common/ErrorBanner.svelte";
+  import { get } from "svelte/store";
   import { projectStore } from "./lib/stores/project-store";
-  import { playbackStore } from "./lib/stores/playback-store";
+  import { playbackStore, playheadTime } from "./lib/stores/playback-store";
   import { uiStore } from "./lib/stores/ui-store";
   import { createNewProject } from "./lib/domain/project";
   import { loadMediaFile } from "./lib/media/file-loader";
@@ -95,21 +96,21 @@
         break;
       case "ArrowLeft":
         e.preventDefault();
-        if (e.shiftKey) playbackStore.seek($playbackStore.currentTime - 1);
+        if (e.shiftKey) playbackStore.seek(get(playheadTime) - 1);
         else playbackStore.stepBackward();
         break;
       case "ArrowRight":
         e.preventDefault();
-        if (e.shiftKey) playbackStore.seek($playbackStore.currentTime + 1);
+        if (e.shiftKey) playbackStore.seek(get(playheadTime) + 1);
         else playbackStore.stepForward();
         break;
     }
   }
 
   function splitAtPlayhead() {
-    const t = $playbackStore.currentTime;
-    const fps = $projectStore.settings.fps;
-    for (const track of $projectStore.timeline.tracks) {
+    const t = get(playheadTime);
+    const fps = get(projectStore).settings.fps;
+    for (const track of get(projectStore).timeline.tracks) {
       const clip = track.clips.find((c) => t > c.timelineStart && t < c.timelineEnd);
       if (clip) {
         projectStore.splitClipAtTime(clip.id, t, fps);

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { projectStore } from "../../stores/project-store";
-  import { playbackStore } from "../../stores/playback-store";
+  import { playbackStore, playheadTime } from "../../stores/playback-store";
   import { uiStore } from "../../stores/ui-store";
   import TimelineRuler from "./TimelineRuler.svelte";
   import TimelineTrack from "./TimelineTrack.svelte";
@@ -16,7 +16,7 @@
   $: fps = $projectStore.settings.fps;
   $: tracks = $projectStore.timeline.tracks;
   $: duration = $projectStore.timeline.duration;
-  $: currentTime = $playbackStore.currentTime;
+  // currentTime は Playhead が playheadTime を直接購読するため不要
 
   let scrollLeft = 0;
   let timelineEl: HTMLElement;
@@ -121,7 +121,7 @@
       <!-- ルーラー -->
       <!-- svelte-ignore a11y-click-events-have-key-events -->
       <div on:click={onRulerClick} class="cursor-pointer sticky top-0 z-10">
-        <TimelineRuler {duration} {zoom} {scrollLeft} />
+        <TimelineRuler {duration} {zoom} />
       </div>
 
       <!-- トラック群 + 再生ヘッド -->
@@ -139,8 +139,8 @@
           />
         {/each}
 
-        <!-- 再生ヘッド -->
-        <Playhead {currentTime} {zoom} height={tracks.length * TRACK_HEIGHT} />
+        <!-- 再生ヘッド: playheadTime ストアを内部で直接購読 -->
+        <Playhead {zoom} height={tracks.length * TRACK_HEIGHT} />
       </div>
     </div>
   </div>
