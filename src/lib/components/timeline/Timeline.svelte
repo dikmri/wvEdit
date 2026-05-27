@@ -5,7 +5,6 @@
   import TimelineRuler from "./TimelineRuler.svelte";
   import TimelineTrack from "./TimelineTrack.svelte";
   import Playhead from "./Playhead.svelte";
-  import type { MediaAsset } from "../../types/project";
   import { pxToSeconds, secondsToPx } from "../../domain/time";
 
   const TRACK_LABEL_WIDTH = 80;
@@ -14,18 +13,18 @@
 
   $: zoom = $uiStore.timelineZoom;
   $: fps = $projectStore.settings.fps;
-  $: tracks = $projectStore.timeline.tracks;
+  // テキスト/字幕トラックはクリップがある時のみ表示
+  $: tracks = $projectStore.timeline.tracks.filter(
+    (t) => t.type !== "text" && t.type !== "subtitle" || t.clips.length > 0
+  );
   $: duration = $projectStore.timeline.duration;
-  // currentTime は Playhead が playheadTime を直接購読するため不要
+  $: contentWidth = Math.max(secondsToPx(duration, zoom) + 200, 800);
 
-  let scrollLeft = 0;
   let timelineEl: HTMLElement;
-
-  $: totalHeight = RULER_HEIGHT + tracks.length * TRACK_HEIGHT;
 
   function onRulerClick(e: MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const x = e.clientX - rect.left + scrollLeft;
+    const x = e.clientX - rect.left;
     playbackStore.seek(pxToSeconds(x, zoom));
   }
 
@@ -45,32 +44,27 @@
     const { trackId, assetId, time } = e.detail;
     const asset = $projectStore.assets.find((a) => a.id === assetId);
     if (!asset) return;
-
     const track = tracks.find((t) => t.id === trackId);
     if (!track) return;
-
-    // 互換性チェック: video/image → video track, audio → audio track
     if (track.type === "video" && asset.type !== "video" && asset.type !== "image") return;
     if (track.type === "audio" && asset.type !== "audio") return;
     if (track.type === "text" || track.type === "subtitle") return;
 
     const DEFAULT_IMAGE_DURATION = 5;
-    const duration = asset.duration > 0 ? asset.duration : DEFAULT_IMAGE_DURATION;
-
-    const clip = {
+    const clipDuration = asset.duration > 0 ? asset.duration : DEFAULT_IMAGE_DURATION;
+    projectStore.addClipToTrack(trackId, {
       id: crypto.randomUUID(),
       assetId: asset.id,
       type: asset.type as "video" | "audio" | "image",
       trackId,
       timelineStart: time,
-      timelineEnd: time + duration,
+      timelineEnd: time + clipDuration,
       sourceStart: 0,
-      sourceEnd: duration,
+      sourceEnd: clipDuration,
       name: asset.name,
       selected: false,
       audio: { volume: 1, muted: false, fadeIn: 0, fadeOut: 0 },
-    };
-    projectStore.addClipToTrack(trackId, clip);
+    });
   }
 
   function onTimelineClick(e: CustomEvent<{ time: number }>) {
@@ -78,8 +72,11 @@
     projectStore.clearSelection();
   }
 
-  function onScroll(e: Event) {
-    scrollLeft = (e.target as HTMLElement).scrollLeft;
+  function trackIcon(type: string): string {
+    return type === "video" ? "▶" : type === "audio" ? "♪" : type === "subtitle" ? "字" : "T";
+  }
+  function trackIconColor(type: string): string {
+    return type === "video" ? "text-blue-400" : type === "audio" ? "text-green-400" : type === "subtitle" ? "text-orange-400" : "text-purple-400";
   }
 </script>
 
@@ -101,43 +98,55 @@
     />
   </div>
 
-  <!-- タイムライン本体 -->
-  <div class="flex flex-1 overflow-hidden">
-    <!-- トラックラベル -->
+  <!-- タイムライン本体（単一スクロールコンテナ: 縦横両対応） -->
+  <div
+    bind:this={timelineEl}
+    class="flex-1 overflow-auto"
+  >
+    <!-- ルーラー行: sticky top で縦スクロール時に固定 -->
     <div
-      class="flex-shrink-0 bg-dark-800 border-r border-dark-600 z-10"
-      style="width: {TRACK_LABEL_WIDTH}px;"
+      class="flex sticky top-0 z-20 bg-dark-800"
+      style="min-width: {TRACK_LABEL_WIDTH + contentWidth}px;"
     >
-      <!-- ルーラーの高さ分余白 -->
-      <div style="height: {RULER_HEIGHT}px;" class="border-b border-dark-600"></div>
-      {#each tracks as track}
-        {@const iconColor = track.type === "video" ? "text-blue-400" : track.type === "audio" ? "text-green-400" : track.type === "subtitle" ? "text-orange-400" : "text-purple-400"}
-        {@const icon = track.type === "video" ? "▶" : track.type === "audio" ? "♪" : track.type === "subtitle" ? "字" : "T"}
-        <div
-          class="flex items-center gap-1 px-2 border-b border-dark-600"
-          style="height: {TRACK_HEIGHT}px;"
-        >
-          <span class="text-xs font-bold flex-shrink-0 {iconColor}">{icon}</span>
-          <span class="text-xs text-gray-400 truncate">{track.name}</span>
-        </div>
-      {/each}
-    </div>
-
-    <!-- スクロール可能なタイムライン -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div
-      bind:this={timelineEl}
-      class="flex-1 overflow-auto relative"
-      on:scroll={onScroll}
-    >
+      <!-- 左上コーナー: sticky left で横スクロール時にも固定 -->
+      <div
+        class="sticky left-0 z-30 flex-shrink-0 bg-dark-800 border-r border-b border-dark-600"
+        style="width: {TRACK_LABEL_WIDTH}px; height: {RULER_HEIGHT}px;"
+      ></div>
       <!-- ルーラー -->
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <div on:click={onRulerClick} class="cursor-pointer sticky top-0 z-10">
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+      <div
+        on:click={onRulerClick}
+        class="cursor-pointer border-b border-dark-600"
+        style="width: {contentWidth}px;"
+      >
         <TimelineRuler {duration} {zoom} />
       </div>
+    </div>
 
-      <!-- トラック群 + 再生ヘッド -->
-      <div class="relative">
+    <!-- トラック行: ラベル列(sticky left) + コンテンツ列 -->
+    <div
+      class="relative flex"
+      style="min-width: {TRACK_LABEL_WIDTH + contentWidth}px;"
+    >
+      <!-- ラベル列: sticky left で横スクロール時に固定 -->
+      <div
+        class="sticky left-0 z-10 flex-shrink-0 bg-dark-800 border-r border-dark-600"
+        style="width: {TRACK_LABEL_WIDTH}px;"
+      >
+        {#each tracks as track}
+          <div
+            class="flex items-center gap-1 px-2 border-b border-dark-600"
+            style="height: {TRACK_HEIGHT}px;"
+          >
+            <span class="text-xs font-bold flex-shrink-0 {trackIconColor(track.type)}">{trackIcon(track.type)}</span>
+            <span class="text-xs text-gray-400 truncate">{track.name}</span>
+          </div>
+        {/each}
+      </div>
+
+      <!-- トラックコンテンツ + 再生ヘッド -->
+      <div class="relative" style="width: {contentWidth}px;">
         {#each tracks as track (track.id)}
           <TimelineTrack
             {track}
@@ -150,8 +159,6 @@
             on:timeline-click={onTimelineClick}
           />
         {/each}
-
-        <!-- 再生ヘッド: playheadTime ストアを内部で直接購読 -->
         <Playhead {zoom} height={tracks.length * TRACK_HEIGHT} />
       </div>
     </div>

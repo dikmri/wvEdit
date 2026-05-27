@@ -32,6 +32,52 @@
   // 画像キャッシュ
   const imageCache = new Map<string, HTMLImageElement>();
 
+  // テキストクリップD&D用
+  let draggingTextClip: import("../../types/project").Clip | null = null;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+
+  function screenToCanvasPct(clientX: number, clientY: number): { x: number; y: number } {
+    const rect = canvasEl.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100)),
+      y: Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100)),
+    };
+  }
+
+  function onCanvasPointerDown(e: PointerEvent) {
+    const t = get(playheadTime);
+    const textClip = findClipAt(t, sortedTextClips);
+    if (!textClip?.text) return;
+    const { x: px, y: py } = screenToCanvasPct(e.clientX, e.clientY);
+    const clipX = textClip.text.x ?? 50;
+    const clipY = textClip.text.y ?? 50;
+    if (Math.abs(px - clipX) < 10 && Math.abs(py - clipY) < 10) {
+      draggingTextClip = textClip;
+      dragOffsetX = px - clipX;
+      dragOffsetY = py - clipY;
+      canvasEl.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      projectStore.selectClip(textClip.id, false);
+    }
+  }
+
+  function onCanvasPointerMove(e: PointerEvent) {
+    if (!draggingTextClip) return;
+    const { x: px, y: py } = screenToCanvasPct(e.clientX, e.clientY);
+    const newX = Math.max(0, Math.min(100, px - dragOffsetX));
+    const newY = Math.max(0, Math.min(100, py - dragOffsetY));
+    const proj = get(projectStore);
+    const track = proj.timeline.tracks.find((t) => t.clips.some((c) => c.id === draggingTextClip!.id));
+    if (track) {
+      projectStore.updateClipText(track.id, draggingTextClip.id, { x: newX, y: newY });
+    }
+  }
+
+  function onCanvasPointerUp(_e: PointerEvent) {
+    draggingTextClip = null;
+  }
+
   const unsubPb = playbackStore.subscribe((s) => {
     cachedFps = s.fps;
     cachedDuration = s.duration;
@@ -61,9 +107,10 @@
     .flatMap((t) => t.clips)
     .sort((a, b) => a.timelineStart - b.timelineStart);
 
-  // テキスト/字幕変更時に再描画（一時停止中）
+  // テキスト/字幕/ドラッグ状態変更時に再描画（一時停止中）
   $: if (sortedTextClips) redrawCanvas();
   $: if (sortedSubtitleClips) redrawCanvas();
+  $: if (draggingTextClip !== undefined) redrawCanvas();
 
   function findClipAt(time: number, clips: Clip[]): Clip | null {
     for (const clip of clips) {
@@ -168,6 +215,18 @@
       const cx = W * ((ts.x ?? 50) / 100);
       const cy = H * ((ts.y ?? 50) / 100);
       const rad = ((ts.rotation ?? 0) * Math.PI) / 180;
+
+      // 選択中はドラッグハンドルを表示
+      if (textClip.selected) {
+        ctx.save();
+        ctx.strokeStyle = draggingTextClip ? "rgba(96,165,250,1)" : "rgba(96,165,250,0.7)";
+        ctx.lineWidth = Math.max(1, H / 540);
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, H * 0.022, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
 
       ctx.save();
       ctx.translate(cx, cy);
@@ -380,12 +439,17 @@
       on:loadedmetadata={handleLoadedMetadata}
     ></video>
 
-    <!-- Canvas: 画像クリップ描画 + テキストオーバーレイ -->
+    <!-- Canvas: 画像クリップ描画 + テキストオーバーレイ (テキストD&D対応) -->
     <canvas
       bind:this={canvasEl}
       width={$projectStore.settings.width}
       height={$projectStore.settings.height}
-      class="absolute max-w-full max-h-full object-contain pointer-events-none"
+      class="absolute max-w-full max-h-full object-contain"
+      style="cursor: {draggingTextClip ? 'grabbing' : 'default'};"
+      on:pointerdown={onCanvasPointerDown}
+      on:pointermove={onCanvasPointerMove}
+      on:pointerup={onCanvasPointerUp}
+      on:pointerleave={onCanvasPointerUp}
     ></canvas>
 
     <!-- svelte-ignore a11y-media-has-caption -->
